@@ -6,7 +6,7 @@
 
 constexpr size_t VECTOR_LEN = 1UL<<16;
 constexpr size_t ALIGN = 32;
-constexpr size_t ITER_COUNT = 1000;
+constexpr size_t ITER_COUNT = 10000;
 constexpr float EPSILON = 1e-5;
 
 class AVXMathfunTest : public ::testing::Test {
@@ -16,20 +16,34 @@ private:
         posix_memalign(reinterpret_cast<void**>(data), ALIGN, VECTOR_LEN*sizeof(float));
     }
 
+#define allocMem(func)\
+    do {\
+        allocMemory(& func##NaiveResult_);\
+        allocMemory(& func##SimdResult_);\
+    } while(0)
+
+#define freeMem(func)\
+    do {\
+        free(func##NaiveResult_);\
+        free(func##SimdResult_);\
+    } while(0)
+
+
 protected:
     virtual void TearDown() {
-//        std::cout<<"Tearing Down..."<<std::endl;
         free(inputData_);
-        free(naiveExpResult_);
-        free(simdExpResult_);
-
+        freeMem(exp);
+        freeMem(log);
+        freeMem(sin);
+        freeMem(cos);
     }
 
     virtual void SetUp() {
-//        std::cout<<"Setting Up..."<<std::endl;
         allocMemory(&inputData_);
-        allocMemory(&naiveExpResult_);
-        allocMemory(&simdExpResult_);
+        allocMem(exp);
+        allocMem(log);
+        allocMem(sin);
+        allocMem(cos);
 
 
         std::random_device dev;
@@ -40,28 +54,42 @@ protected:
         for (size_t i = 0; i < VECTOR_LEN; ++i) {
             float tmp = distribution(eng);
             inputData_[i] = tmp;
-            naiveExpResult_[i] = std::exp(tmp);
+            expNaiveResult_[i] = std::exp(tmp);
+            logNaiveResult_[i] = std::log(tmp);
+            sinNaiveResult_[i] = std::sin(tmp);
+            cosNaiveResult_[i] = std::cos(tmp);
         }
     }
 
     float* inputData_;
-    float* naiveExpResult_;
-    float* simdExpResult_;
-
+    float* expNaiveResult_;
+    float* expSimdResult_;
+    float* logNaiveResult_;
+    float* logSimdResult_;
+    float* sinNaiveResult_;
+    float* sinSimdResult_;
+    float* cosNaiveResult_;
+    float* cosSimdResult_;
 };
 
-TEST_F(AVXMathfunTest, exp) {
-    for (size_t i = 0; i < ITER_COUNT; ++i) {
-        __m256 tmp;
-        __m256 ipt;
-        for (size_t j = 0; j < VECTOR_LEN; j+= 8) {
-            ipt = _mm256_load_ps(inputData_ + j);
-            tmp = exp256_ps(ipt);
-            _mm256_store_ps(simdExpResult_ + j, tmp);
-        }
-    }
-
-    for (size_t i = 0; i < VECTOR_LEN; ++i) {
-        ASSERT_NEAR(naiveExpResult_[i], simdExpResult_[i], EPSILON);
-    }
+#define TEST_AVX(func)\
+TEST_F(AVXMathfunTest, func) {\
+    for (size_t i = 0; i < ITER_COUNT; ++i) {\
+        __m256 tmp;\
+        __m256 ipt;\
+        for (size_t j = 0; j < VECTOR_LEN; j+= 8) {\
+            ipt = _mm256_load_ps(inputData_ + j);\
+            tmp = func##256_ps(ipt);\
+            _mm256_store_ps(func##SimdResult_ + j, tmp);\
+        }\
+    }\
+\
+    for (size_t i = 0; i < VECTOR_LEN; ++i) {\
+        ASSERT_NEAR(func##NaiveResult_[i], func##SimdResult_[i], EPSILON);\
+    }\
 }
+
+TEST_AVX(exp)
+TEST_AVX(log)
+TEST_AVX(sin)
+TEST_AVX(cos)
